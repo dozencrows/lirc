@@ -12,13 +12,13 @@ static int i2cir_deinit(void) {
 }
 
 static int i2cir_send(struct ir_remote* remote, struct ir_ncode* code) {
-    result = send_buffer_put(remote, code);
+    int result = send_buffer_put(remote, code);
     if (!result)
         return 0;
 
     /* Payload signal is now available in global variable send_buf. */
     /* Process sendbuf (see transmit.h). */
-    return success;
+    return 1;
 }
 
 static int i2cir_drvctl(unsigned int cmd, void *arg) {
@@ -45,7 +45,8 @@ struct driver i2cir_driver = {
 	.readdata	    = NULL,
 	.api_version	= 2,
 	.driver_version = "0.9.2",
-	.info		    = "No info available"}
+	.info		    = "No info available"
+};
 
+const struct driver* hardwares[] = { &i2cir_driver, NULL };
 
-struct driver* hardwares[] = { &i2cir_driver, NULL };
