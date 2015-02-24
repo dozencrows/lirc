@@ -18,19 +18,14 @@ static int i2cir_send(struct ir_remote* remote, struct ir_ncode* code) {
     if (!result)
         return 0;
 
-    FILE* test_file = fopen("/home/pi/i2c-ir.log", "a");
-    if (test_file) {
-        int buffer_len = send_buffer_length();
-        const lirc_t* buffer_data = send_buffer_data();
+    int buffer_len = send_buffer_length();
+    const lirc_t* buffer_data = send_buffer_data();
 
-        fprintf(test_file, "Buffer: %d items\n", buffer_len);
+    LOGPRINTF(1, "Buffer: %d items, total %d\n", buffer_len, send_buffer_sum());
 
-        int i;
-        for (i = 0; i < buffer_len; i++) {
-            fprintf(test_file, "  %d\n", buffer_data[i]);
-        }
-
-        fclose(test_file);
+    int i;
+    for (i = 0; i < buffer_len; i++) {
+        LOGPRINTF(2, "  %d\n", buffer_data[i]);
     }
 
     /* Payload signal is now available in global variable send_buf. */
