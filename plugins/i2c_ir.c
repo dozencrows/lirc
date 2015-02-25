@@ -1,16 +1,73 @@
 #include "lirc_driver.h"
 #include <stdio.h>
+#include <linux/i2c.h>
+#include <linux/i2c-dev.h>
+#include <sys/ioctl.h>
+#include <fcntl.h>
+#include <stdint.h>
+#include <unistd.h>
 
+#define I2C_ADDR        0x70
+#define I2C_DEV         "/dev/i2c-1"
+#define TIMEOUT_COUNT   30
+
+static int i2c_fd = -1;
+ // Initial I2C IR setup: 1 repeat, zero repeat delay
+static uint8_t init_msg[3] = { 0x01, 0x01, 0x00 };
+
+#define IR_STAGE_COUNT 64
+typedef struct IRSEND_MSG {
+    uint8_t     addr;
+    uint8_t     length;
+    uint16_t    timing[IR_STAGE_COUNT];
+} IRSEND_MSG;
+
+static int i2cir_deinit(void) {
+    /* close device */
+    if (i2c_fd >= 0) {
+        close(i2c_fd);
+    }
+    return 1;
+}
 
 static int i2cir_init() {
     /* Open device/hardware */
     send_buffer_init();
+    i2c_fd = open(I2C_DEV, O_RDWR);
+    if (i2c_fd < 0) {
+        LOGPRINTF(1, "I2C device open failed");
+        return 0;
+    }
+
+    if (ioctl(i2c_fd, I2C_SLAVE, I2C_ADDR) < 0) {
+        LOGPRINTF(1, "I2C address set failed");
+        i2cir_deinit();
+        return 0;
+    }
+
+    if (write(i2c_fd, init_msg, sizeof(init_msg)) != sizeof(init_msg)) {
+        LOGPRINTF(1, "I2C device init failed");
+        i2cir_deinit();
+        return 0;
+    }
+
     return 1;
 }
 
-static int i2cir_deinit(void) {
-    /* close device */
-    return 1;
+static int i2cir_status() {
+    uint8_t status_reg = 0;
+
+    if (write(i2c_fd, &status_reg, 1) != 1) {
+        LOGPRINTF(1, "I2C status poll failed");
+        return -1;
+    }
+
+    if (read(i2c_fd, &status_reg, 1) != 1) {
+        LOGPRINTF(1, "I2C status poll failed");
+        return -1;
+    }
+
+    return ((int)status_reg) & 0xff;
 }
 
 static int i2cir_send(struct ir_remote* remote, struct ir_ncode* code) {
@@ -21,11 +78,43 @@ static int i2cir_send(struct ir_remote* remote, struct ir_ncode* code) {
     int buffer_len = send_buffer_length();
     const lirc_t* buffer_data = send_buffer_data();
 
-    LOGPRINTF(1, "Buffer: %d items, total %d\n", buffer_len, send_buffer_sum());
+    if (buffer_len < IR_STAGE_COUNT) {
+        IRSEND_MSG send_msg;
+        send_msg.addr = 3;
+        send_msg.length = (uint8_t) buffer_len;
 
-    int i;
-    for (i = 0; i < buffer_len; i++) {
-        LOGPRINTF(2, "  %d\n", buffer_data[i]);
+        int i;
+        for (i = 0; i < buffer_len; i++) {
+            send_msg.timing[i] = (uint16_t) buffer_data[i];
+        }
+
+        size_t send_size = 2 + buffer_len * sizeof(uint16_t); 
+        if (write(i2c_fd, &send_msg, send_size) != send_size) {
+            LOGPRINTF(1, "I2C device send failed");
+            return 0;
+        }
+
+        usleep(1000);
+        int status_reg = i2cir_status();
+        LOGPRINTF(1, "I2C-IR status: %02x", status_reg);
+
+        useconds_t duration = (useconds_t) send_buffer_sum();
+        int timeout = TIMEOUT_COUNT;
+
+        while (timeout-- > 0) {
+            usleep(duration);
+            status_reg = i2cir_status();
+            if (!status_reg) {
+                return 1;
+            }
+        }
+
+        LOGPRINTF(1, "I2C send timed out with no return to ready: %02x", status_reg);
+        return 0;
+    }
+    else {
+        LOGPRINTF(1, "Pulse data too long: %d items, total %d\n", buffer_len, send_buffer_sum());
+        return 0;
     }
 
     /* Payload signal is now available in global variable send_buf. */
