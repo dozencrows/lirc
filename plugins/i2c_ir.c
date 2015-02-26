@@ -7,11 +7,13 @@
 #include <stdint.h>
 #include <unistd.h>
 
-#define I2C_ADDR        0x70
-#define I2C_DEV         "/dev/i2c-1"
-#define TIMEOUT_COUNT   30
+#define I2C_ADDR            0x70
+#define I2C_DEV             "/dev/i2c-1"
+#define TIMEOUT_COUNT       30
+#define TIMEOUT_DELAY_US    1000
 
 static int i2c_fd = -1;
+
  // Initial I2C IR setup: 1 repeat, zero repeat delay
 static uint8_t init_msg[3] = { 0x01, 0x01, 0x00 };
 
@@ -58,15 +60,14 @@ static int i2cir_status() {
     uint8_t status_reg = 0;
 
     if (write(i2c_fd, &status_reg, 1) != 1) {
-        LOGPRINTF(1, "I2C status poll failed");
+        LOGPERROR(1, "I2C status poll failed (w)");
         return -1;
     }
 
     if (read(i2c_fd, &status_reg, 1) != 1) {
-        LOGPRINTF(1, "I2C status poll failed");
+        LOGPERROR(1, "I2C status poll failed (r)");
         return -1;
     }
-
     return ((int)status_reg) & 0xff;
 }
 
@@ -94,18 +95,20 @@ static int i2cir_send(struct ir_remote* remote, struct ir_ncode* code) {
             return 0;
         }
 
-        usleep(1000);
-        int status_reg = i2cir_status();
-        LOGPRINTF(1, "I2C-IR status: %02x", status_reg);
-
         useconds_t duration = (useconds_t) send_buffer_sum();
+        usleep(duration);
+
         int timeout = TIMEOUT_COUNT;
+        int status_reg = -1;
 
         while (timeout-- > 0) {
-            usleep(duration);
             status_reg = i2cir_status();
             if (!status_reg) {
+                LOGPRINTF(1, "I2C-IR done: %d status timeouts", TIMEOUT_COUNT - timeout);
                 return 1;
+            }
+            else {
+                usleep(TIMEOUT_DELAY_US);
             }
         }
 
@@ -117,8 +120,6 @@ static int i2cir_send(struct ir_remote* remote, struct ir_ncode* code) {
         return 0;
     }
 
-    /* Payload signal is now available in global variable send_buf. */
-    /* Process sendbuf (see transmit.h). */
     return 1;
 }
 
