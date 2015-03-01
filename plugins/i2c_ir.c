@@ -95,11 +95,12 @@ static int i2cir_send(struct ir_remote* remote, struct ir_ncode* code) {
             return 0;
         }
 
+        int status_reg = i2cir_status();
+
         useconds_t duration = (useconds_t) send_buffer_sum();
         usleep(duration);
 
         int timeout = TIMEOUT_COUNT;
-        int status_reg = -1;
 
         while (timeout-- > 0) {
             status_reg = i2cir_status();
